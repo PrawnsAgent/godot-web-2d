@@ -1,0 +1,54 @@
+name: Godot 4.7 Web-Template (nur 2D)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # fuer das Release mit dem fertigen Template
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Godot 4.7-stable holen (offizielles Repo)
+        run: git clone --depth 1 --branch 4.7-stable https://github.com/godotengine/godot.git godot
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: SCons installieren
+        run: python -m pip install scons
+
+      - name: Emscripten 4.0.11 (offizielles emsdk-Repo)
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git emsdk
+          ./emsdk/emsdk install 4.0.11
+          ./emsdk/emsdk activate 4.0.11
+
+      - name: Web-Template bauen (2D, ohne 3D und ungenutzte Module)
+        run: |
+          source ./emsdk/emsdk_env.sh
+          cd godot
+          MODS="gridmap csg jolt_physics godot_physics_3d godot_physics_2d navigation_2d navigation_3d openxr webxr mobile_vr lightmapper_rd xatlas_unwrap meshoptimizer vhacd fbx gltf visual_shader camera theora tinyexr hdr ktx basis_universal astcenc etcpak cvtt betsy bcdec dds bmp tga webp jpg mp3 msdfgen enet webrtc upnp multiplayer jsonrpc objectdb_profiler interactive_music noise text_server_adv"
+          MODARGS=""
+          for m in $MODS; do MODARGS="$MODARGS module_${m}_enabled=no"; done
+          scons -j"$(nproc)" platform=web target=template_release threads=no production=yes \
+            optimize=size_extra disable_3d=yes disable_xr=yes disable_physics_2d=yes disable_navigation_2d=yes \
+            module_text_server_fb_enabled=yes $MODARGS
+          ls -l bin
+
+      - name: Als Release veroeffentlichen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ZIP=$(ls godot/bin/*.zip | head -n 1)
+          ls -l "$ZIP"
+          gh release delete template-4.7-2d --yes --cleanup-tag || true
+          gh release create template-4.7-2d "$ZIP" --title "Godot 4.7 Web-Template (2D)" \
+            --notes "Selbst gebautes Export-Template: Godot 4.7-stable, threads=no, disable_3d, optimize=size_extra, Textserver Fallback."
